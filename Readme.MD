@@ -1,79 +1,299 @@
-# Resume Screening System
+# 🚀 AI-Powered Resume Screening & Candidate Ranking System
 
-An AI-powered Applicant Tracking System (ATS) built in Python. Automatically screens resumes against job descriptions, scores candidates 0-100, and sends rejection/shortlist emails.
+An enterprise-style Applicant Tracking System (ATS) that automates resume screening using NLP, semantic matching, candidate ranking, analytics, and email automation.
 
-## Features
-- PDF, DOCX, TXT, MD resume support
-- BERT semantic similarity scoring (all-MiniLM-L6-v2)
-- Skill taxonomy with aliases and inference (80+ skills, 10 domains)
-- Skill gate: if skills don't match, experience is not considered
-- Explainability dashboard with score breakdown
-- Rule-based feedback: strengths, gaps, improvement suggestions
-- AI commentary via Ollama (local LLM, free, no API key)
-- Gmail SMTP email integration
-- SQLite persistence with audit log
-- Analytics: funnel, top skills, score distribution
-- CSV export
+Built as an end-to-end recruitment solution to help HR teams identify the most relevant candidates faster while maintaining explainability and consistency in hiring decisions.
 
-## Tech Stack
-- **UI:** Streamlit
-- **NLP:** spaCy (en_core_web_sm)
-- **Semantic similarity:** sentence-transformers (all-MiniLM-L6-v2)
-- **ML:** scikit-learn (TF-IDF, LinearSVC)
-- **File parsing:** pdfminer.six, python-docx
-- **Database:** SQLite
-- **Email:** smtplib + Gmail SMTP
-- **AI commentary:** Ollama (llama3.2:3b)
+---
 
-## Setup
+## 📌 Overview
 
-> **Important:** Place project at `C:\Projects\resume_screening` — NOT inside OneDrive.
+Recruiters often spend hours manually reviewing resumes, comparing qualifications, and communicating with candidates.
+
+This system streamlines the process by:
+
+* Parsing resumes from multiple formats
+* Extracting candidate information automatically
+* Matching resumes against job descriptions
+* Generating candidate fit scores
+* Ranking applicants
+* Providing explainable feedback
+* Automating acceptance and rejection emails
+
+---
+
+## ✨ Key Features
+
+### Resume Processing
+
+* PDF, DOCX, TXT, and Markdown support
+* Automated text extraction
+* Robust preprocessing pipeline
+
+### NLP & Semantic Matching
+
+* spaCy-based preprocessing
+* BERT semantic similarity using `all-MiniLM-L6-v2`
+* Skill extraction and normalization
+* Domain-aware skill taxonomy
+
+### Intelligent Candidate Scoring
+
+* Skill-based matching
+* Experience evaluation
+* Education matching
+* Semantic similarity scoring
+* Weighted ranking system
+
+### Explainable AI
+
+* Score breakdown by component
+* Candidate strengths identification
+* Skill gap analysis
+* Improvement recommendations
+
+### HR Dashboard
+
+* Streamlit-based recruiter interface
+* Candidate ranking view
+* Detailed candidate profiles
+* Search and filtering
+
+### Email Automation
+
+* Acceptance emails
+* Rejection emails
+* SMTP integration
+* Delivery status tracking
+* Audit logging
+
+### Analytics & Reporting
+
+* Hiring funnel visualization
+* Top skill analysis
+* Score distribution insights
+* CSV export functionality
+
+---
+
+## 🏗️ System Architecture
+
+The application follows a modular 8-layer architecture.
+
+| Layer   | Component              | Purpose                               |
+| ------- | ---------------------- | ------------------------------------- |
+| Layer 1 | Resume Ingestion       | Extract text from PDF, DOCX, TXT      |
+| Layer 2 | NLP Preprocessing      | Cleaning, tokenization, normalization |
+| Layer 3 | Feature Engineering    | Skill matching + BERT embeddings      |
+| Layer 4 | Information Extraction | Name, email, education, experience    |
+| Layer 5 | Scoring Engine         | Candidate evaluation and ranking      |
+| Layer 6 | Database Layer         | SQLite persistence                    |
+| Layer 7 | Streamlit Dashboard    | Recruiter-facing application          |
+| Layer 8 | Email Automation       | Candidate communication               |
+
+---
+
+## ⚙️ Technology Stack
+
+### Programming Language
+
+* Python
+
+### NLP & Machine Learning
+
+* spaCy
+* Sentence Transformers
+* BERT (all-MiniLM-L6-v2)
+* Scikit-learn
+
+### Data Processing
+
+* Pandas
+* NumPy
+
+### Resume Parsing
+
+* pdfminer.six
+* python-docx
+
+### Database
+
+* SQLite
+
+### Web Application
+
+* Streamlit
+
+### Email Services
+
+* Gmail SMTP
+* smtplib
+
+### Optional AI Commentary
+
+* Ollama
+* Llama 3.2
+
+---
+
+## 📊 Candidate Scoring Methodology
+
+Candidates are evaluated using a weighted scoring framework.
+
+| Component                | Weight |
+| ------------------------ | ------ |
+| Skill Match              | 40%    |
+| Experience Match         | 30%    |
+| BERT Semantic Similarity | 20%    |
+| Education Match          | 10%    |
+
+### Skill Gate Logic
+
+To prevent irrelevant candidates from receiving inflated scores:
+
+* If skill overlap is below threshold, experience scoring is reduced.
+* If no meaningful skill overlap exists, the final score is capped.
+* Candidates are classified as:
+
+  * Fit
+  * Maybe
+  * Not Fit
+
+---
+
+## 📂 Project Structure
+
+```text
+resume-screening-system/
+
+├── layer1_ingestion.py
+├── layer2_preprocessing.py
+├── layer3_features.py
+├── layer4_extraction.py
+├── layer5_model.py
+├── layer6_database.py
+├── layer7_app.py
+├── layer8_email.py
+
+├── requirements.txt
+├── setup.bat
+├── README.md
+└── .gitignore
+```
+
+---
+
+## 🚀 Installation
+
+### Clone Repository
 
 ```bash
-# Run setup script
+git clone https://github.com/Akshat023/resume-screening-system.git
+cd resume-screening-system
+```
+
+### Install Dependencies
+
+```bash
 setup.bat
+```
 
-# Configure email (optional)
-copy .env.example .env
-# Edit .env with your Gmail credentials
+or
 
-# Start the app
+```bash
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+```
+
+---
+
+## ▶️ Running the Application
+
+```bash
 streamlit run layer7_app.py
 ```
 
-## Architecture
+Open:
 
-```
-Layer 1  File Ingestion      PDF/DOCX/TXT → raw text
-Layer 2  Preprocessing       Clean + section detection + tokenize
-Layer 3  Feature Engineering Skill matching + BERT similarity
-Layer 4  Extraction          Name/email/experience/education/certs
-Layer 5  Scoring Engine      Skill gate + weighted score + feedback
-Layer 6  Database            SQLite persistence
-Layer 7  Streamlit UI        HR-facing web interface
-Layer 8  Email               Gmail SMTP rejection/shortlist emails
+```text
+http://localhost:8501
 ```
 
-## Scoring
+---
 
-| Component | Weight | Method |
-|---|---|---|
-| Skill Match | 40% | Taxonomy matching with aliases + inference |
-| Experience | 30% | Years vs requirement (zeroed if skill gate fails) |
-| BERT Similarity | 20% | Semantic similarity via all-MiniLM-L6-v2 |
-| Education | 10% | Degree level vs requirement |
+## 📧 Email Configuration
 
-**Skill Gate:** If skill match < 30%, experience and education scores are zeroed. If 0% overlap, final score is capped at 25.
+Create a `.env` file:
 
-## AI Commentary (Optional)
+```env
+SENDER_EMAIL=your_email@gmail.com
+SENDER_APP_PASSWORD=your_app_password
+```
+
+The system supports:
+
+* Candidate acceptance emails
+* Candidate rejection emails
+* Delivery logging
+* Duplicate-send prevention
+
+---
+
+## 🤖 Optional AI Commentary
+
+Install Ollama:
+
 ```bash
-# Install Ollama from https://ollama.com
 ollama pull llama3.2:3b
 ```
-Then use the "Generate AI Commentary" button in the candidate card.
 
-## Environment Variables
-```
-SENDER_EMAIL=yourname@gmail.com
-SENDER_APP_PASSWORD=xxxx xxxx xxxx xxxx
-```
+Enable AI-generated candidate insights directly from the dashboard.
+
+---
+
+## 📈 Validation Results
+
+### AI/ML Role Screening
+
+| Candidate   | Score | Status |
+| ----------- | ----- | ------ |
+| Candidate A | 77.3  | Fit    |
+| Candidate B | 70.3  | Fit    |
+
+### Sales Role Screening
+
+| Candidate   | Score | Status  |
+| ----------- | ----- | ------- |
+| Candidate A | 8.4   | Not Fit |
+| Candidate B | 10.9  | Not Fit |
+
+These results demonstrate effective role-specific candidate ranking and filtering.
+
+---
+
+## 🔮 Future Enhancements
+
+* OCR support for scanned resumes
+* PostgreSQL integration
+* Cloud deployment
+* Multi-language resume parsing
+* LLM-powered candidate summaries
+* Interview question generation
+* Recruiter feedback learning loop
+* Enterprise ATS integrations
+
+---
+
+## 👨‍💻 Author
+
+**Akshat**
+
+AI/ML Intern
+
+Built as an industry-oriented recruitment automation project demonstrating practical applications of NLP, Machine Learning, Semantic Search, Explainable AI, and Full-Stack Software Engineering.
+
+---
+
+## 📄 License
+
+This project is released under the MIT License.
