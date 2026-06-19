@@ -1,0 +1,31 @@
+# Environment
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Database (contains candidate PII)
+resume_screening.db
+
+# Model cache
+*.pkl
+.cache/
+
+# IDE
+.vscode/
+.cursor/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Old TF-IDF versions (replaced by BERT)
+*_tfidf.py
+
+# Uploaded resumes (sensitive)
+resumes/
+
+# HuggingFace cache
+.cache/
