@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Candidates — {{ job_info.title if job_info else '' }}{% endblock %}
+{% block content %}
+<div class="layout">
+  <div class="sidebar">
+    <div class="card">
+      <h2>Previous Jobs</h2>
+      {% for job in jobs[:8] %}
+        <a href="/candidates/{{ job.id }}" class="job-link">📋 {{ job.title }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="main-content">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div>
+        <h1 style="font-size:1.4rem">{{ job_info.title if job_info else 'Candidates' }}</h1>
+        <p style="color:#666;font-size:0.85rem;margin-top:4px">
+          {{ candidates|length }} candidate(s) shown
+        </p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a href="/analytics/{{ job_id }}" class="btn btn-secondary btn-sm">📊 Analytics</a>
+        <a href="/export_csv/{{ job_id }}" class="btn btn-secondary btn-sm">⬇ Export CSV</a>
+      </div>
+    </div>
+
+    <!-- Filter -->
+    <div style="display:flex;gap:8px;margin-bottom:20px">
+      {% for label in ['All','Fit','Maybe','Not Fit'] %}
+        <a href="/candidates/{{ job_id }}?filter={{ label }}"
+           class="btn btn-sm {% if filter_label==label %}btn-primary{% else %}btn-secondary{% endif %}">
+          {{ label }}
+        </a>
+      {% endfor %}
+    </div>
+
+    <!-- Company name for emails -->
+    <input type="text" id="company_name" value="Acme Corp"
+           placeholder="Company name for emails" style="max-width:300px;margin-bottom:16px">
+
+    {% if not candidates %}
+      <div class="card"><p style="color:#666">No candidates found.</p></div>
+    {% endif %}
+
+    {% for c in candidates %}
+      {% set score = c.final_score %}
+      {% set label = c.ranking_label %}
+      {% if label == 'Fit' %}
+        {% set icon = '🟢' %}{% set badge_class = 'badge-fit' %}
+      {% elif label == 'Maybe' %}
+        {% set icon = '🟡' %}{% set badge_class = 'badge-maybe' %}
+      {% else %}
+        {% set icon = '🔴' %}{% set badge_class = 'badge-notfit' %}
+      {% endif %}
+
+      <details>
+        <summary>
+          <span>{{ icon }} <strong>{{ c.candidate_name or c.filename }}</strong>
+            &nbsp;<span class="badge {{ badge_class }}">{{ label }}</span>
+          </span>
+          <span style="color:#6366f1;font-weight:700">{{ score }}/100</span>
+        </summary>
+        <div class="details-body">
+
+          <!-- Score breakdown row -->
+          <div class="grid-3" style="margin-bottom:20px">
+            <div>
+              <div style="font-size:2rem;font-weight:700;color:#6366f1">{{ score }}/100</div>
+              <div style="color:#a0a0c0;font-size:0.85rem">Fit Score</div>
+              <div style="margin-top:12px;font-size:0.9rem">
+                <div><strong>Experience:</strong> {{ c.experience_level }}</div>
+                <div><strong>Education:</strong> {{ c.highest_degree }}</div>
+                <div><strong>Email:</strong> {{ c.candidate_email or 'Not found' }}</div>
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size:0.9rem;font-weight:600;margin-bottom:8px">Score Breakdown</div>
+              {% set breakdown = c.breakdown %}
+              {% for dim, dim_label in [('skill_match','Skill Match'),('experience','Experience'),
+                                        ('tfidf_sim','BERT Similarity'),('education','Education')] %}
+                {% set val = breakdown.get(dim, 0) %}
+                <div style="margin-bottom:8px">
+                  <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:2px">
+                    <span>{{ dim_label }}</span><span>{{ val }}%</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div class="progress-fill" style="width:{{ val }}%"></div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+
+            <div>
+              {% if c.matched_skills %}
+                <div style="font-size:0.85rem;font-weight:600;margin-bottom:6px;color:#34d399">✅ Matched Skills</div>
+                <div style="margin-bottom:12px">
+                  {% for skill in c.matched_skills %}
+                    <span class="tag tag-green">{{ skill }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              {% if c.missing_skills %}
+                <div style="font-size:0.85rem;font-weight:600;margin-bottom:6px;color:#f87171">❌ Missing Skills</div>
+                <div>
+                  {% for skill in c.missing_skills %}
+                    <span class="tag tag-red">{{ skill }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Feedback -->
+          <div style="border-top:1px solid #2d2d44;padding-top:16px;margin-bottom:16px">
+            <div style="font-size:1rem;font-weight:600;margin-bottom:12px">💡 Feedback & Improvement Areas</div>
+            {% set fb = c.feedback %}
+            {% if fb.fit_for_role %}
+              <div class="alert alert-success">{{ fb.summary }}</div>
+            {% elif score >= 45 %}
+              <div class="alert alert-warning">{{ fb.summary }}</div>
+            {% else %}
+              <div class="alert alert-error">{{ fb.summary }}</div>
+            {% endif %}
+            <div class="grid-3">
+              <div>
+                <div style="font-weight:600;margin-bottom:8px;color:#34d399">✅ Strengths</div>
+                {% for s in fb.strengths %}<div style="font-size:0.85rem;margin-bottom:6px;color:#ccc">• {{ s }}</div>{% endfor %}
+              </div>
+              <div>
+                <div style="font-weight:600;margin-bottom:8px;color:#f87171">❌ Gaps</div>
+                {% for g in fb.gaps %}<div style="font-size:0.85rem;margin-bottom:6px;color:#ccc">• {{ g }}</div>{% endfor %}
+              </div>
+              <div>
+                <div style="font-weight:600;margin-bottom:8px;color:#fbbf24">📌 Suggestions</div>
+                {% for sg in fb.suggestions %}<div style="font-size:0.85rem;margin-bottom:6px;color:#ccc">• {{ sg }}</div>{% endfor %}
+              </div>
+            </div>
+          </div>
+
+          <!-- AI Commentary -->
+          <div style="border-top:1px solid #2d2d44;padding-top:16px;margin-bottom:16px">
+            <div style="font-size:1rem;font-weight:600;margin-bottom:8px">🤖 AI Commentary</div>
+            <div id="ai_{{ c.id }}" style="color:#a0a0c0;font-size:0.85rem">
+              <button class="btn btn-secondary btn-sm"
+                onclick="generateAI('{{ c.id }}', '{{ job_id }}')">
+                Generate AI Commentary
+              </button>
+              <span style="font-size:0.8rem;color:#666;margin-left:8px">
+                Requires Ollama running locally
+              </span>
+            </div>
+          </div>
+
+          <!-- Email actions -->
+          {% if not c.email_sent %}
+            {% if c.candidate_email %}
+              <div style="border-top:1px solid #2d2d44;padding-top:16px;display:flex;gap:8px">
+                <button class="btn btn-danger btn-sm"
+                  onclick="sendEmail('{{ c.id }}', 'rejection', '{{ job_id }}')">
+                  Send Rejection
+                </button>
+                <button class="btn btn-success btn-sm"
+                  onclick="sendEmail('{{ c.id }}', 'shortlist', '{{ job_id }}')">
+                  Send Shortlist
+                </button>
+                <span id="email_status_{{ c.id }}" style="font-size:0.85rem;padding:6px 0;color:#a0a0c0"></span>
+              </div>
+            {% else %}
+              <div style="border-top:1px solid #2d2d44;padding-top:16px;color:#666;font-size:0.85rem">
+                ⚠️ No email address found in resume
+              </div>
+            {% endif %}
+          {% else %}
+            <div style="border-top:1px solid #2d2d44;padding-top:16px;color:#34d399;font-size:0.85rem">
+              ✅ Email already sent
+            </div>
+          {% endif %}
+
+        </div>
+      </details>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+async function sendEmail(candidateId, type, jobId) {
+  const company = document.getElementById('company_name').value || 'Our Company';
+  const statusEl = document.getElementById('email_status_' + candidateId);
+  statusEl.textContent = 'Sending...';
+  const res = await fetch(`/send_email/${candidateId}/${type}`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({job_id: jobId, company_name: company})
+  });
+  const data = await res.json();
+  if(data.status === 'sent'){
+    statusEl.textContent = '✅ Sent!';
+    statusEl.style.color = '#34d399';
+  } else if(data.status === 'not_configured'){
+    statusEl.textContent = '⚠️ Email not configured — add credentials to .env';
+    statusEl.style.color = '#fbbf24';
+  } else {
+    statusEl.textContent = '❌ ' + data.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+async function generateAI(candidateId, jobId) {
+  const el = document.getElementById('ai_' + candidateId);
+  el.innerHTML = '<span style="color:#a0a0c0">⏳ Generating (20-40s on CPU)...</span>';
+  const res = await fetch(`/ai_feedback/${candidateId}`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({job_id: jobId})
+  });
+  const data = await res.json();
+  el.innerHTML = `<div style="background:#0f1117;border:1px solid #2d2d44;border-radius:8px;
+    padding:12px;font-size:0.85rem;color:#ccc;line-height:1.6">${data.text}</div>`;
+}
+</script>
+{% endblock %}

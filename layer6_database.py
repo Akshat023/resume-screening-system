@@ -1,95 +1,182 @@
 """
-layer6_database.py — Layer 6: SQLite Database
-Persists jobs, candidates, and email logs across sessions.
+layer6_database.py — Layer 6: Database (PostgreSQL + SQLite fallback)
+Uses PostgreSQL (Supabase) when DATABASE_URL is set, SQLite locally.
 """
 
-import sqlite3
 import json
 import os
-from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "resume_screening.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+USE_POSTGRES  = bool(DATABASE_URL)
+
+if USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+else:
+    import sqlite3
+
+SQLITE_PATH = os.path.join(os.path.dirname(__file__), "resume_screening.db")
+
+CREATE_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS jobs (
+    id          SERIAL PRIMARY KEY,
+    title       TEXT NOT NULL,
+    description TEXT NOT NULL,
+    requirements TEXT,
+    created_at  TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS candidates (
+    id               SERIAL PRIMARY KEY,
+    job_id           INTEGER REFERENCES jobs(id),
+    filename         TEXT,
+    candidate_name   TEXT,
+    candidate_email  TEXT,
+    final_score      REAL,
+    ranking_label    TEXT,
+    breakdown        TEXT,
+    matched_skills   TEXT,
+    missing_skills   TEXT,
+    experience_years REAL,
+    experience_level TEXT,
+    highest_degree   TEXT,
+    certifications   TEXT,
+    email_sent       INTEGER DEFAULT 0,
+    screened_at      TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS email_log (
+    id           SERIAL PRIMARY KEY,
+    candidate_id INTEGER REFERENCES candidates(id),
+    email_type   TEXT,
+    recipient    TEXT,
+    status       TEXT,
+    sent_at      TIMESTAMP DEFAULT NOW()
+);
+"""
+
+CREATE_TABLES_SQLITE = """
+CREATE TABLE IF NOT EXISTS jobs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    title        TEXT NOT NULL,
+    description  TEXT NOT NULL,
+    requirements TEXT,
+    created_at   TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS candidates (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id           INTEGER REFERENCES jobs(id),
+    filename         TEXT,
+    candidate_name   TEXT,
+    candidate_email  TEXT,
+    final_score      REAL,
+    ranking_label    TEXT,
+    breakdown        TEXT,
+    matched_skills   TEXT,
+    missing_skills   TEXT,
+    experience_years REAL,
+    experience_level TEXT,
+    highest_degree   TEXT,
+    certifications   TEXT,
+    email_sent       INTEGER DEFAULT 0,
+    screened_at      TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS email_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id INTEGER REFERENCES candidates(id),
+    email_type   TEXT,
+    recipient    TEXT,
+    status       TEXT,
+    sent_at      TEXT DEFAULT (datetime('now'))
+);
+"""
 
 
 class Database:
-    def __init__(self, db_path: str = DB_PATH):
-        self.db_path = db_path
+    def __init__(self):
         self._init_db()
 
     def _connect(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        if USE_POSTGRES:
+            conn = psycopg2.connect(DATABASE_URL)
+            conn.autocommit = False
+            return conn
+        else:
+            conn = sqlite3.connect(SQLITE_PATH)
+            conn.row_factory = sqlite3.Row
+            return conn
 
     def _init_db(self):
-        with self._connect() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS jobs (
-                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title        TEXT NOT NULL,
-                    description  TEXT NOT NULL,
-                    requirements TEXT,
-                    created_at   TEXT DEFAULT (datetime('now'))
-                );
-                CREATE TABLE IF NOT EXISTS candidates (
-                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                    job_id           INTEGER REFERENCES jobs(id),
-                    filename         TEXT,
-                    candidate_name   TEXT,
-                    candidate_email  TEXT,
-                    final_score      REAL,
-                    ranking_label    TEXT,
-                    breakdown        TEXT,
-                    matched_skills   TEXT,
-                    missing_skills   TEXT,
-                    experience_years REAL,
-                    experience_level TEXT,
-                    highest_degree   TEXT,
-                    certifications   TEXT,
-                    email_sent       INTEGER DEFAULT 0,
-                    screened_at      TEXT DEFAULT (datetime('now'))
-                );
-                CREATE TABLE IF NOT EXISTS email_log (
-                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                    candidate_id INTEGER REFERENCES candidates(id),
-                    email_type   TEXT,
-                    recipient    TEXT,
-                    status       TEXT,
-                    sent_at      TEXT DEFAULT (datetime('now'))
-                );
-            """)
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                for stmt in CREATE_TABLES_SQL.strip().split(";"):
+                    stmt = stmt.strip()
+                    if stmt:
+                        cur.execute(stmt)
+            else:
+                cur.executescript(CREATE_TABLES_SQLITE)
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _rows_to_dicts(self, rows, cursor=None):
+        if USE_POSTGRES:
+            cols = [desc[0] for desc in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+        else:
+            return [dict(row) for row in rows]
 
     def save_job(self, title: str, description: str, requirements: dict = None) -> int:
-        with self._connect() as conn:
-            cur = conn.execute(
-                "INSERT INTO jobs (title, description, requirements) VALUES (?, ?, ?)",
-                (title, description, json.dumps(requirements or {}))
-            )
-            return cur.lastrowid
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                cur.execute(
+                    "INSERT INTO jobs (title, description, requirements) VALUES (%s,%s,%s) RETURNING id",
+                    (title, description, json.dumps(requirements or {}))
+                )
+                job_id = cur.fetchone()[0]
+            else:
+                cur.execute(
+                    "INSERT INTO jobs (title, description, requirements) VALUES (?,?,?)",
+                    (title, description, json.dumps(requirements or {}))
+                )
+                job_id = cur.lastrowid
+            conn.commit()
+            return job_id
+        finally:
+            conn.close()
 
     def get_jobs(self) -> list[dict]:
-        with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall()
-            return [dict(r) for r in rows]
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM jobs ORDER BY created_at DESC")
+            return self._rows_to_dicts(cur.fetchall(), cur)
+        finally:
+            conn.close()
 
     def get_job(self, job_id: int) -> dict | None:
-        with self._connect() as conn:
-            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-            return dict(row) if row else None
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                cur.execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
+            else:
+                cur.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            return self._rows_to_dicts([row], cur)[0]
+        finally:
+            conn.close()
 
     def save_candidate(self, job_id: int, score_result: dict, filename: str) -> int:
-        with self._connect() as conn:
-            cur = conn.execute("""
-                INSERT INTO candidates (
-                    job_id, filename, candidate_name, candidate_email,
-                    final_score, ranking_label, breakdown,
-                    matched_skills, missing_skills,
-                    experience_years, experience_level,
-                    highest_degree, certifications
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                job_id,
-                filename,
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            params = (
+                job_id, filename,
                 score_result.get("candidate_name"),
                 score_result.get("candidate_email"),
                 score_result.get("final_score"),
@@ -101,45 +188,94 @@ class Database:
                 score_result.get("experience_level"),
                 score_result.get("highest_degree"),
                 json.dumps(score_result.get("certifications", [])),
-            ))
-            return cur.lastrowid
+            )
+            if USE_POSTGRES:
+                cur.execute("""
+                    INSERT INTO candidates
+                    (job_id,filename,candidate_name,candidate_email,final_score,ranking_label,
+                     breakdown,matched_skills,missing_skills,experience_years,experience_level,
+                     highest_degree,certifications)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                """, params)
+                cid = cur.fetchone()[0]
+            else:
+                cur.execute("""
+                    INSERT INTO candidates
+                    (job_id,filename,candidate_name,candidate_email,final_score,ranking_label,
+                     breakdown,matched_skills,missing_skills,experience_years,experience_level,
+                     highest_degree,certifications)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, params)
+                cid = cur.lastrowid
+            conn.commit()
+            return cid
+        finally:
+            conn.close()
 
     def get_candidates(self, job_id: int) -> list[dict]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM candidates WHERE job_id = ? ORDER BY final_score DESC",
-                (job_id,)
-            ).fetchall()
-            results = []
-            for row in rows:
-                r = dict(row)
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                cur.execute("SELECT * FROM candidates WHERE job_id=%s ORDER BY final_score DESC", (job_id,))
+            else:
+                cur.execute("SELECT * FROM candidates WHERE job_id=? ORDER BY final_score DESC", (job_id,))
+            rows = self._rows_to_dicts(cur.fetchall(), cur)
+            for r in rows:
                 r["breakdown"]      = json.loads(r["breakdown"] or "{}")
                 r["matched_skills"] = json.loads(r["matched_skills"] or "[]")
                 r["missing_skills"] = json.loads(r["missing_skills"] or "[]")
                 r["certifications"] = json.loads(r["certifications"] or "[]")
-                results.append(r)
-            return results
+            return rows
+        finally:
+            conn.close()
 
     def mark_email_sent(self, candidate_id: int, email_type: str, recipient: str, status: str):
-        with self._connect() as conn:
-            conn.execute("UPDATE candidates SET email_sent = 1 WHERE id = ?", (candidate_id,))
-            conn.execute(
-                "INSERT INTO email_log (candidate_id, email_type, recipient, status) VALUES (?, ?, ?, ?)",
-                (candidate_id, email_type, recipient, status)
-            )
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                cur.execute("UPDATE candidates SET email_sent=1 WHERE id=%s", (candidate_id,))
+                cur.execute(
+                    "INSERT INTO email_log (candidate_id,email_type,recipient,status) VALUES (%s,%s,%s,%s)",
+                    (candidate_id, email_type, recipient, status)
+                )
+            else:
+                cur.execute("UPDATE candidates SET email_sent=1 WHERE id=?", (candidate_id,))
+                cur.execute(
+                    "INSERT INTO email_log (candidate_id,email_type,recipient,status) VALUES (?,?,?,?)",
+                    (candidate_id, email_type, recipient, status)
+                )
+            conn.commit()
+        finally:
+            conn.close()
 
     def get_analytics(self, job_id: int) -> dict:
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT ranking_label, final_score, matched_skills FROM candidates WHERE job_id = ?",
-                (job_id,)
-            ).fetchall()
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                cur.execute(
+    """SELECT ranking_label, final_score, matched_skills,
+              candidate_name, filename
+       FROM candidates WHERE job_id=%s
+       ORDER BY final_score DESC""",
+    (job_id,)
+)
+            else:
+                cur.execute(
+                    "SELECT ranking_label,final_score,matched_skills FROM candidates WHERE job_id=?",
+                    (job_id,)
+                )
+            rows = self._rows_to_dicts(cur.fetchall(), cur)
+        finally:
+            conn.close()
 
         if not rows:
             return {}
 
-        scores = [r["final_score"] for r in rows]
-        labels = [r["ranking_label"] for r in rows]
+        scores     = [r["final_score"] for r in rows]
+        labels     = [r["ranking_label"] for r in rows]
         all_skills = []
         for r in rows:
             all_skills.extend(json.loads(r["matched_skills"] or "[]"))
@@ -157,8 +293,21 @@ class Database:
             "shortlist_ratio": round(labels.count("Fit") / total * 100, 1),
             "avg_score":       round(sum(scores) / total, 1),
             "top_skills":      sorted(skill_counts.items(), key=lambda x: x[1], reverse=True)[:10],
+            "candidates_scores": [                                           # ← ADD THIS
+            {"name": r["candidate_name"] or r["filename"] or "Unknown",
+             "score": r["final_score"]}
+            for r in rows
+            ],
         }
 
     def clear_job_candidates(self, job_id: int):
-        with self._connect() as conn:
-            conn.execute("DELETE FROM candidates WHERE job_id = ?", (job_id,))
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                cur.execute("DELETE FROM candidates WHERE job_id=%s", (job_id,))
+            else:
+                cur.execute("DELETE FROM candidates WHERE job_id=?", (job_id,))
+            conn.commit()
+        finally:
+            conn.close()

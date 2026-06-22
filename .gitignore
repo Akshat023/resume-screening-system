@@ -1,11 +1,11 @@
-# Environment
+# Environment — NEVER commit this
 .env
 venv/
 __pycache__/
 *.pyc
 *.pyo
 
-# Database (contains candidate PII)
+# Database
 resume_screening.db
 
 # Model cache
@@ -15,17 +15,14 @@ resume_screening.db
 # IDE
 .vscode/
 .cursor/
-*.code-workspace
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Old TF-IDF versions (replaced by BERT)
+# Old files
 *_tfidf.py
+layer7_app.py
 
-# Uploaded resumes (sensitive)
+# Uploaded resumes
 resumes/
-
-# HuggingFace cache
-.cache/

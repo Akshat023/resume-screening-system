@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Resume Screening System{% endblock %}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
+  nav{background:#1a1a2e;padding:14px 32px;display:flex;align-items:center;gap:24px;border-bottom:1px solid #2d2d44}
+  nav .logo{font-size:1.2rem;font-weight:700;color:#fff}
+  nav a{color:#a0a0c0;text-decoration:none;font-size:0.9rem;padding:6px 14px;border-radius:6px;transition:background 0.2s}
+  nav a:hover,nav a.active{background:#2d2d44;color:#fff}
+  .container{max-width:1200px;margin:0 auto;padding:32px 24px}
+  .card{background:#1a1a2e;border:1px solid #2d2d44;border-radius:12px;padding:24px;margin-bottom:20px}
+  .card h2{font-size:1.1rem;margin-bottom:16px;color:#fff}
+  input,textarea,select{width:100%;padding:10px 14px;background:#0f1117;border:1px solid #3d3d5c;
+    border-radius:8px;color:#e0e0e0;font-size:0.95rem;margin-bottom:12px}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:#6366f1}
+  label{display:block;font-size:0.85rem;color:#a0a0c0;margin-bottom:4px}
+  .btn{padding:10px 20px;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:600;transition:all 0.2s}
+  .btn-primary{background:#6366f1;color:#fff}.btn-primary:hover{background:#4f46e5}
+  .btn-success{background:#10b981;color:#fff}.btn-success:hover{background:#059669}
+  .btn-danger{background:#ef4444;color:#fff}.btn-danger:hover{background:#dc2626}
+  .btn-secondary{background:#374151;color:#fff}.btn-secondary:hover{background:#4b5563}
+  .btn-sm{padding:6px 12px;font-size:0.8rem}
+  .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.78rem;font-weight:600}
+  .badge-fit{background:#064e3b;color:#34d399}
+  .badge-maybe{background:#78350f;color:#fbbf24}
+  .badge-notfit{background:#7f1d1d;color:#f87171}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+  .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .metric{background:#0f1117;border:1px solid #2d2d44;border-radius:10px;padding:16px;text-align:center}
+  .metric .value{font-size:2rem;font-weight:700;color:#6366f1}
+  .metric .label{font-size:0.8rem;color:#a0a0c0;margin-top:4px}
+  .progress-bar{height:8px;background:#1f2937;border-radius:4px;overflow:hidden;margin:4px 0}
+  .progress-fill{height:100%;border-radius:4px;background:#6366f1;transition:width 0.3s}
+  .tag{display:inline-block;padding:3px 8px;border-radius:4px;font-size:0.75rem;margin:2px}
+  .tag-green{background:#064e3b;color:#34d399}
+  .tag-red{background:#7f1d1d;color:#f87171}
+  .alert{padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:0.9rem}
+  .alert-error{background:#7f1d1d;color:#f87171}
+  .alert-warning{background:#78350f;color:#fbbf24}
+  .alert-success{background:#064e3b;color:#34d399}
+  .sidebar{width:240px;min-width:240px}
+  .layout{display:flex;gap:24px}
+  .main-content{flex:1;min-width:0}
+  .job-link{display:block;padding:8px 12px;border-radius:6px;color:#a0a0c0;text-decoration:none;
+    font-size:0.85rem;margin-bottom:4px;border:1px solid transparent}
+  .job-link:hover{background:#2d2d44;color:#fff;border-color:#3d3d5c}
+  details{border:1px solid #2d2d44;border-radius:10px;margin-bottom:12px;overflow:hidden}
+  details summary{padding:16px 20px;cursor:pointer;list-style:none;display:flex;
+    align-items:center;justify-content:space-between;background:#1a1a2e}
+  details summary:hover{background:#22223a}
+  details[open] summary{border-bottom:1px solid #2d2d44}
+  .details-body{padding:20px;background:#141428}
+  .tabs{display:flex;gap:4px;margin-bottom:20px}
+  .tab-btn{padding:8px 18px;border:none;border-radius:6px;cursor:pointer;
+    background:#1a1a2e;color:#a0a0c0;font-size:0.9rem}
+  .tab-btn.active{background:#6366f1;color:#fff}
+  @media(max-width:768px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
+    .layout{flex-direction:column}.sidebar{width:100%}}
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">📄 Resume Screener</span>
+  <a href="/" {% if request.endpoint=='index' %}class="active"{% endif %}>Screen</a>
+</nav>
+<div class="container">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</div>
+</body>
+</html>

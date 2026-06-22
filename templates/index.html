@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Screen Resumes{% endblock %}
+{% block content %}
+<div class="layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="card">
+      <h2>Previous Jobs</h2>
+      {% if jobs %}
+        {% for job in jobs[:8] %}
+          <a href="/candidates/{{ job.id }}" class="job-link">📋 {{ job.title }}</a>
+        {% endfor %}
+      {% else %}
+        <p style="color:#666;font-size:0.85rem">No previous jobs yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main-content">
+    <h1 style="margin-bottom:24px;font-size:1.6rem">Screen Resumes</h1>
+
+    <form action="/screen" method="POST" enctype="multipart/form-data">
+      <div class="grid-2">
+        <!-- Left: Job details -->
+        <div>
+          <div class="card">
+            <h2>Job Details</h2>
+            <label>Job Title</label>
+            <input type="text" name="job_title" placeholder="e.g. Machine Learning Engineer" required>
+            <label>Job Description</label>
+            <textarea name="job_description" rows="8" placeholder="Paste the full job description here..." required></textarea>
+            <label>Minimum Years Experience</label>
+            <input type="number" name="min_exp" value="2" min="0" max="20">
+            <label>Minimum Education</label>
+            <select name="min_edu">
+              <option value="0">No requirement</option>
+              <option value="1">High School</option>
+              <option value="2">Diploma</option>
+              <option value="3" selected>Bachelor's</option>
+              <option value="4">Master's</option>
+              <option value="5">PhD</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Right: Upload + weights -->
+        <div>
+          <div class="card">
+            <h2>Upload Resumes</h2>
+            <input type="file" name="resumes" multiple accept=".pdf,.docx,.txt,.md" required
+                   style="border:2px dashed #3d3d5c;padding:20px;text-align:center">
+            <p style="font-size:0.8rem;color:#666;margin-top:4px">PDF, DOCX, TXT, MD supported</p>
+          </div>
+
+          <div class="card">
+            <h2>Ranking Weights <span style="font-size:0.8rem;color:#666">(must sum to 1.0)</span></h2>
+            <label>Skill Match: <span id="w_skill_val">0.40</span></label>
+            <input type="range" name="w_skill" min="0" max="1" step="0.05" value="0.40"
+                   oninput="updateWeight('w_skill',this.value)">
+            <label>Experience: <span id="w_exp_val">0.30</span></label>
+            <input type="range" name="w_exp" min="0" max="1" step="0.05" value="0.30"
+                   oninput="updateWeight('w_exp',this.value)">
+            <label>BERT Similarity: <span id="w_tfidf_val">0.20</span></label>
+            <input type="range" name="w_tfidf" min="0" max="1" step="0.05" value="0.20"
+                   oninput="updateWeight('w_tfidf',this.value)">
+            <label>Education: <span id="w_edu_val">0.10</span></label>
+            <input type="range" name="w_edu" min="0" max="1" step="0.05" value="0.10"
+                   oninput="updateWeight('w_edu',this.value)">
+            <div id="weight_status" style="margin-top:8px;padding:8px;border-radius:6px;
+                 background:#064e3b;color:#34d399;font-size:0.85rem">✓ Weights sum to 1.0</div>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="width:100%;padding:14px;font-size:1rem">
+        🚀 Screen Resumes
+      </button>
+    </form>
+  </div>
+</div>
+
+<script>
+function updateWeight(id, val) {
+  document.getElementById(id+'_val').textContent = parseFloat(val).toFixed(2);
+  const vals = ['w_skill','w_exp','w_tfidf','w_edu']
+    .map(n => parseFloat(document.querySelector(`[name="${n}"]`).value));
+  const total = vals.reduce((a,b)=>a+b,0);
+  const el = document.getElementById('weight_status');
+  if(Math.abs(total-1.0)<0.01){
+    el.style.background='#064e3b'; el.style.color='#34d399';
+    el.textContent='✓ Weights sum to '+total.toFixed(2);
+  } else {
+    el.style.background='#7f1d1d'; el.style.color='#f87171';
+    el.textContent='⚠ Weights sum to '+total.toFixed(2)+' — adjust to 1.0';
+  }
+}
+</script>
+{% endblock %}
