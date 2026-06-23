@@ -267,50 +267,86 @@ class ResumeScorer:
 
 def generate_ai_feedback(score_result: dict, rule_based_feedback: dict,
                          job_description: str, role_title: str = "this role") -> str:
+    """
+    Generate AI commentary using Groq API (free, fast, no rate limit issues).
+    Uses Llama 3.3 70B model via Groq's inference API.
+    Requires GROQ_API_KEY environment variable.
+    Falls back gracefully if API key not set or call fails.
+    """
+    import os
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key:
+        return "AI commentary unavailable — set GROQ_API_KEY in environment variables."
+
     try:
         import requests as _requests
     except ImportError:
         return "Install 'requests' to enable AI feedback: pip install requests"
 
-    name      = score_result.get("candidate_name") or "The candidate"
-    score     = score_result.get("final_score", 0)
-    label     = score_result.get("ranking_label", "Not Fit")
-    matched   = score_result.get("matched_skills", [])
-    missing   = score_result.get("missing_skills", [])
-    certs     = score_result.get("certifications", [])
+    name    = score_result.get("candidate_name") or "The candidate"
+    score   = score_result.get("final_score", 0)
+    label   = score_result.get("ranking_label", "Not Fit")
+    matched = score_result.get("matched_skills", [])
+    missing = score_result.get("missing_skills", [])
+    certs   = score_result.get("certifications", [])
 
     prompt = f"""You are an expert HR consultant reviewing a resume for a {role_title} position.
 
 CANDIDATE: {name} | Score: {score}/100 ({label})
-Experience: {score_result.get('experience_years', 0)} years ({score_result.get('experience_level', '')})
-Education: {score_result.get('highest_degree', '')}
-Matched Skills: {', '.join(matched[:8]) if matched else 'None'}
-Missing Skills: {', '.join(missing[:6]) if missing else 'None'}
-Certifications: {', '.join(certs[:3]) if certs else 'None'}
+Experience: {score_result.get("experience_years", 0)} years ({score_result.get("experience_level", "")})
+Education: {score_result.get("highest_degree", "")}
+Matched Skills: {", ".join(matched[:8]) if matched else "None"}
+Missing Skills: {", ".join(missing[:6]) if missing else "None"}
+Certifications: {", ".join(certs[:3]) if certs else "None"}
 
-Strengths: {' '.join(rule_based_feedback.get('strengths', []))[:300]}
-Gaps: {' '.join(rule_based_feedback.get('gaps', []))[:300]}
+Strengths: {" ".join(rule_based_feedback.get("strengths", []))[:300]}
+Gaps: {" ".join(rule_based_feedback.get("gaps", []))[:300]}
 
 JD excerpt: {job_description[:500]}
 
-Write a 3-4 sentence professional HR commentary. Focus on overall fit, the most important strength or gap, and a specific next step. Plain paragraph, no bullet points."""
+Write a 3-4 sentence professional HR commentary. Focus on overall fit, the most important strength or gap, and a specific interview recommendation. Plain paragraph only, no bullet points, no headings."""
 
     try:
         response = _requests.post(
-            "http://localhost:11434/api/generate",
-            json={"model": "llama3.2:3b", "prompt": prompt, "stream": False,
-                  "options": {"temperature": 0.3, "num_predict": 200}},
-            timeout=90,
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a professional HR consultant. Give concise, direct feedback in plain paragraphs only."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "temperature": 0.3,
+                "max_tokens": 300,
+            },
+            timeout=30,
         )
+
         if response.status_code == 200:
-            ai_text = response.json().get("response", "").strip()
+            ai_text = (response.json()
+                       .get("choices", [{}])[0]
+                       .get("message", {})
+                       .get("content", "")).strip()
             if ai_text:
                 return ai_text
-        return f"Ollama returned status {response.status_code}. Run: ollama pull llama3.2:3b"
-    except _requests.exceptions.ConnectionError:
-        return "AI commentary unavailable — Ollama is not running. Download from https://ollama.com then run: ollama pull llama3.2:3b"
+            return "Groq returned empty response. Try again."
+
+        elif response.status_code == 429:
+            return "Groq rate limit reached. Try again in a few seconds."
+        else:
+            return f"Groq API error {response.status_code}: {response.text[:200]}"
+
     except _requests.exceptions.Timeout:
-        return "AI commentary timed out. Try again or use a smaller model."
+        return "Groq API timed out. Try again."
     except Exception as e:
         return f"AI commentary error: {str(e)}"
 
