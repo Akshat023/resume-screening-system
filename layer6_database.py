@@ -19,11 +19,13 @@ SQLITE_PATH = os.path.join(os.path.dirname(__file__), "resume_screening.db")
 
 CREATE_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS jobs (
-    id          SERIAL PRIMARY KEY,
-    title       TEXT NOT NULL,
-    description TEXT NOT NULL,
-    requirements TEXT,
-    created_at  TIMESTAMP DEFAULT NOW()
+    id                 SERIAL PRIMARY KEY,
+    title              TEXT NOT NULL,
+    description        TEXT NOT NULL,
+    requirements       TEXT,
+    screening_status   TEXT DEFAULT 'pending',
+    screening_message  TEXT DEFAULT '',
+    created_at         TIMESTAMP DEFAULT NOW()
 );
 CREATE TABLE IF NOT EXISTS candidates (
     id               SERIAL PRIMARY KEY,
@@ -55,11 +57,13 @@ CREATE TABLE IF NOT EXISTS email_log (
 
 CREATE_TABLES_SQLITE = """
 CREATE TABLE IF NOT EXISTS jobs (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    title        TEXT NOT NULL,
-    description  TEXT NOT NULL,
-    requirements TEXT,
-    created_at   TEXT DEFAULT (datetime('now'))
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    title             TEXT NOT NULL,
+    description       TEXT NOT NULL,
+    requirements      TEXT,
+    screening_status  TEXT DEFAULT 'pending',
+    screening_message TEXT DEFAULT '',
+    created_at        TEXT DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS candidates (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,6 +117,16 @@ class Database:
                     stmt = stmt.strip()
                     if stmt:
                         cur.execute(stmt)
+                # Add new columns to existing tables if they don't exist
+                migrations = [
+                    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS screening_status TEXT DEFAULT 'pending'",
+                    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS screening_message TEXT DEFAULT ''",
+                ]
+                for migration in migrations:
+                    try:
+                        cur.execute(migration)
+                    except Exception:
+                        pass
             else:
                 cur.executescript(CREATE_TABLES_SQLITE)
             conn.commit()
@@ -256,12 +270,9 @@ class Database:
             cur = conn.cursor()
             if USE_POSTGRES:
                 cur.execute(
-    """SELECT ranking_label, final_score, matched_skills,
-              candidate_name, filename
-       FROM candidates WHERE job_id=%s
-       ORDER BY final_score DESC""",
-    (job_id,)
-)
+                    "SELECT ranking_label,final_score,matched_skills FROM candidates WHERE job_id=%s",
+                    (job_id,)
+                )
             else:
                 cur.execute(
                     "SELECT ranking_label,final_score,matched_skills FROM candidates WHERE job_id=?",
@@ -293,12 +304,50 @@ class Database:
             "shortlist_ratio": round(labels.count("Fit") / total * 100, 1),
             "avg_score":       round(sum(scores) / total, 1),
             "top_skills":      sorted(skill_counts.items(), key=lambda x: x[1], reverse=True)[:10],
-            "candidates_scores": [                                           # ← ADD THIS
-            {"name": r["candidate_name"] or r["filename"] or "Unknown",
-             "score": r["final_score"]}
-            for r in rows
-            ],
         }
+
+    def set_job_status(self, job_id: int, status: str, message: str = ""):
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                cur.execute(
+                    "UPDATE jobs SET screening_status=%s, screening_message=%s WHERE id=%s",
+                    (status, message, job_id)
+                )
+            else:
+                cur.execute(
+                    "UPDATE jobs SET screening_status=?, screening_message=? WHERE id=?",
+                    (status, message, job_id)
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_job_status(self, job_id: int) -> dict | None:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                cur.execute(
+                    "SELECT screening_status, screening_message FROM jobs WHERE id=%s",
+                    (job_id,)
+                )
+            else:
+                cur.execute(
+                    "SELECT screening_status, screening_message FROM jobs WHERE id=?",
+                    (job_id,)
+                )
+            row = cur.fetchone()
+            if not row:
+                return None
+            if USE_POSTGRES:
+                return {"screening_status": row[0], "screening_message": row[1]}
+            else:
+                return {"screening_status": row["screening_status"],
+                        "screening_message": row["screening_message"]}
+        finally:
+            conn.close()
 
     def clear_job_candidates(self, job_id: int):
         conn = self._connect()
