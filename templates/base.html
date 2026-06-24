@@ -61,6 +61,34 @@
   .tab-btn.active{background:#6366f1;color:#fff}
   @media(max-width:768px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
     .layout{flex-direction:column}.sidebar{width:100%}}
+
+  /* ── Page loading overlay ── */
+  #page_loading{
+    display:none;
+    position:fixed;inset:0;
+    background:rgba(15,17,23,0.88);
+    z-index:9999;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:16px;
+    backdrop-filter:blur(2px);
+  }
+  #page_loading.active{display:flex;}
+  #page_loading .pl-spinner{
+    width:44px;height:44px;
+    border:3px solid #2d2d44;
+    border-top-color:#6366f1;
+    border-radius:50%;
+    animation:pl-spin 0.7s linear infinite;
+  }
+  #page_loading .pl-label{
+    color:#e0e0e0;font-size:1rem;font-weight:600;
+  }
+  #page_loading .pl-sub{
+    color:#a0a0c0;font-size:0.82rem;
+  }
+  @keyframes pl-spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -76,5 +104,74 @@
   {% endwith %}
   {% block content %}{% endblock %}
 </div>
+
+<!-- Global page loading overlay — shown on job-link and nav clicks -->
+<div id="page_loading">
+  <div class="pl-spinner"></div>
+  <div class="pl-label" id="pl_label">Loading...</div>
+  <div class="pl-sub">Fetching candidate data</div>
+</div>
+
+<script>
+// Show loading overlay whenever a .job-link or slow nav link is clicked
+(function() {
+  const overlay = document.getElementById('page_loading');
+  const label   = document.getElementById('pl_label');
+
+  function showLoading(text) {
+    label.textContent = text || 'Loading...';
+    overlay.classList.add('active');
+  }
+
+  // Job links in sidebar — these trigger DB fetch which takes 3-6s
+  document.addEventListener('click', function(e) {
+    const link = e.target.closest('a');
+    if (!link) return;
+
+    // Skip: external links, anchor links, buttons styled as links
+    const href = link.getAttribute('href');
+    if (!href || href.startsWith('#') || href.startsWith('http') || href.startsWith('mailto')) return;
+
+    // Skip: export CSV (triggers download, not navigation)
+    if (href.includes('export_csv')) return;
+
+    // Skip: filter buttons on candidates page (fast, same page)
+    if (href.includes('?filter=')) return;
+
+    // Job links
+    if (link.classList.contains('job-link')) {
+      const jobName = link.textContent.replace('📋', '').trim();
+      showLoading('Loading ' + jobName + '...');
+      return;
+    }
+
+    // Analytics link
+    if (href.includes('/analytics/')) {
+      showLoading('Loading analytics...');
+      return;
+    }
+
+    // Candidates link
+    if (href.includes('/candidates/')) {
+      showLoading('Loading candidates...');
+      return;
+    }
+
+    // Home / Screen link
+    if (href === '/') {
+      showLoading('Loading...');
+      return;
+    }
+  });
+
+  // Hide overlay if user hits back button (browser restores page from cache)
+  window.addEventListener('pageshow', function(e) {
+    if (e.persisted) {
+      overlay.classList.remove('active');
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
