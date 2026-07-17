@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: resume_screening_api
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env                    # loads DATABASE_URL, SENDER_EMAIL, etc.
+    environment:
+      - PYTHONUNBUFFERED=1      # ensures logs show in real time
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      # Mount code for development (remove in production)
+      - .:/app
+      # Exclude venv from mount
+      - /app/venv
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s         # give BERT time to load on first start

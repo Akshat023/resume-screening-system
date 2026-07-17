@@ -1,14 +1,30 @@
+requests
+# ── Web framework ─────────────────────────────────────────────────────────────
+flask==3.0.3
+flask-cors==4.0.1
+gunicorn==22.0.0
+werkzeug==3.0.3
+
+# ── Layer 1: File ingestion ───────────────────────────────────────────────────
 pdfminer.six==20231228
 python-docx==1.1.0
+
+# ── Layer 2: Preprocessing ────────────────────────────────────────────────────
 spacy==3.7.4
-https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+
+# ── Layer 3: Feature engineering ─────────────────────────────────────────────
 scikit-learn==1.4.2
 sentence-transformers==2.7.0
-flask==3.0.3
-werkzeug==3.0.3
-psycopg2-binary==2.9.12
-pandas==2.2.2
-numpy
+
+# ── Layer 5: Model ────────────────────────────────────────────────────────────
+# torch installed separately in Dockerfile (CPU build)
+
+# ── Layer 6: Database ─────────────────────────────────────────────────────────
+psycopg2-binary==2.9.9
+
+# ── Layer 8: Email ────────────────────────────────────────────────────────────
 python-dotenv==1.0.1
-requests
-gunicorn
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+pandas==2.2.2
+numpy==1.26.4

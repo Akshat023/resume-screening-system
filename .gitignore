@@ -1,28 +1,37 @@
-# Environment — NEVER commit this
-.env
-venv/
+# Python
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.Python
+*.egg-info/
 
-# Database
+# Virtual environment — never copy into image
+venv/
+env/
+.env.local
+.env
+
+# Dev / IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local DB (use Supabase in container)
 resume_screening.db
 
-# Model cache
-*.pkl
-.cache/
+# Git
+.git/
+.gitignore
 
-# IDE
-.vscode/
-.cursor/
+# Docs
+README.md
+*.md
 
-# OS
-.DS_Store
-Thumbs.db
+# Build artifacts
+.next/
+node_modules/
 
-# Old files
-*_tfidf.py
-layer7_app.py
-
-# Uploaded resumes
+# Test files
 resumes/

@@ -1,7 +1,7 @@
 """
-app.py — Flask Web Application
-Synchronous screening with progress stored in PostgreSQL (Supabase).
-No in-memory state — works correctly with multiple gunicorn workers.
+app.py — Flask REST API (Docker deployment)
+Pure JSON API — no render_template. Next.js handles all UI.
+CORS enabled so Vercel frontend can communicate with this container.
 """
 
 import os
@@ -10,10 +10,9 @@ import tempfile
 import io
 import csv
 import threading
-import uuid
 from pathlib import Path
-from flask import (Flask, render_template, request, jsonify,
-                   redirect, url_for, send_file, flash)
+from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
@@ -29,14 +28,22 @@ from layer8_email import EmailSender
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "resume-screening-secret-2025")
 
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# Allow requests from your Vercel frontend and localhost for development
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",                          # Next.js dev server
+    "http://localhost:3001",
+    os.getenv("FRONTEND_URL", ""),                    # set to your Vercel URL in .env
+]
+CORS(app, resources={r"/api/*": {"origins": [o for o in ALLOWED_ORIGINS if o]}})
+
 ALLOWED_EXTENSIONS = {"pdf", "docx", "txt", "md"}
 
 db     = Database()
 scorer = ResumeScorer()
 mailer = EmailSender()
 
-# Preload BERT model at startup so first screening request isn't slow
-# On Render free tier this adds ~30s to startup but saves 2-3min per screening
+# Preload BERT at startup so first request isn't slow
 def _preload_models():
     try:
         from layer3_features import _get_bert_model
@@ -45,23 +52,48 @@ def _preload_models():
     except Exception as e:
         print(f"[Startup] BERT preload failed (non-fatal): {e}")
 
-import threading as _threading
-_threading.Thread(target=_preload_models, daemon=True).start()
+threading.Thread(target=_preload_models, daemon=True).start()
 
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Health check — used by Docker healthcheck + frontend to verify connection
+# ─────────────────────────────────────────────────────────────────────────────
 
-@app.route("/")
-def index():
-    jobs = db.get_jobs()
-    return render_template("index.html", jobs=jobs)
+@app.route("/api/health")
+def health():
+    return jsonify({
+        "status":  "ok",
+        "service": "resume-screening-api",
+        "version": "2.0.0",
+    })
 
 
-@app.route("/screen", methods=["POST"])
+# ─────────────────────────────────────────────────────────────────────────────
+# Jobs
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/jobs")
+def get_jobs():
+    return jsonify(db.get_jobs())
+
+
+@app.route("/api/jobs/<int:job_id>")
+def get_job(job_id):
+    job = db.get_job(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify(job)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Screening
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/screen", methods=["POST"])
 def screen():
     job_title       = request.form.get("job_title", "").strip()
     job_description = request.form.get("job_description", "").strip()
@@ -73,18 +105,15 @@ def screen():
     w_edu           = float(request.form.get("w_edu",   0.10))
 
     if not job_title or not job_description:
-        flash("Please provide job title and description.", "error")
-        return redirect(url_for("index"))
+        return jsonify({"error": "Job title and description are required"}), 400
 
     files = request.files.getlist("resumes")
     if not files or all(f.filename == "" for f in files):
-        flash("Please upload at least one resume.", "error")
-        return redirect(url_for("index"))
+        return jsonify({"error": "At least one resume file is required"}), 400
 
     total = round(w_skill + w_exp + w_tfidf + w_edu, 2)
-    if total != 1.0:
-        flash(f"Weights must sum to 1.0 (currently {total}).", "error")
-        return redirect(url_for("index"))
+    if abs(total - 1.0) > 0.01:
+        return jsonify({"error": f"Weights must sum to 1.0 (currently {total})"}), 400
 
     # Save uploaded files to temp paths before thread starts
     saved_files = []
@@ -99,8 +128,7 @@ def screen():
         saved_files.append({"filename": filename, "tmp_path": tmp.name})
 
     if not saved_files:
-        flash("No valid resume files found.", "error")
-        return redirect(url_for("index"))
+        return jsonify({"error": "No valid resume files found"}), 400
 
     weights = {"skill_match": w_skill, "experience": w_exp,
                "tfidf_sim": w_tfidf, "education": w_edu}
@@ -110,20 +138,19 @@ def screen():
         "weights":               weights,
     }
 
-    # Create job in DB first so task_id = job_id (no separate task store needed)
+    # Save job + set initial status in DB
     job_id = db.save_job(job_title, job_description, job_requirements)
     db.clear_job_candidates(job_id)
     db.set_job_status(job_id, "running", "Starting...")
 
-    # Start background thread
-    thread = threading.Thread(
+    # Launch background thread
+    threading.Thread(
         target=_run_screening,
         args=(job_id, job_description, job_requirements, saved_files),
         daemon=True,
-    )
-    thread.start()
+    ).start()
 
-    return redirect(url_for("screening_progress", job_id=job_id))
+    return jsonify({"job_id": job_id, "task_id": str(job_id), "status": "started"})
 
 
 def _run_screening(job_id: int, job_description: str,
@@ -137,21 +164,22 @@ def _run_screening(job_id: int, job_description: str,
         for i, file_info in enumerate(saved_files):
             filename = file_info["filename"]
             tmp_path = file_info["tmp_path"]
-            db.set_job_status(job_id, "running", f"Processing {filename} ({i+1}/{total})...")
+            db.set_job_status(job_id, "running",
+                              f"Processing {filename} ({i+1}/{total})...")
             try:
                 raw_text     = load_resume(tmp_path)
                 preprocessed = preprocess_resume(raw_text)
                 extracted    = extract_resume_info(preprocessed)
-                candidates.append({"filename": filename,
-                                   "preprocessed": preprocessed,
-                                   "extracted": extracted})
+                candidates.append({
+                    "filename":     filename,
+                    "preprocessed": preprocessed,
+                    "extracted":    extracted,
+                })
             except Exception as e:
                 errors.append(f"{filename}: {e}")
             finally:
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
+                try: os.unlink(tmp_path)
+                except: pass
 
         if not candidates:
             db.set_job_status(job_id, "error",
@@ -175,36 +203,39 @@ def _run_screening(job_id: int, job_description: str,
         db.set_job_status(job_id, "error", str(e))
 
 
-@app.route("/progress/<int:job_id>")
-def screening_progress(job_id):
-    job_info = db.get_job(job_id)
-    total    = len(db.get_jobs())
-    return render_template("progress.html", job_id=job_id, job_info=job_info)
+# ─────────────────────────────────────────────────────────────────────────────
+# Status polling
+# ─────────────────────────────────────────────────────────────────────────────
 
-
-@app.route("/status/<int:job_id>")
+@app.route("/api/status/<int:job_id>")
 def screening_status(job_id):
-    """Polled by progress page — reads status from DB, works across workers."""
     status = db.get_job_status(job_id)
     if not status:
-        return jsonify({"status": "error", "message": "Job not found", "job_id": job_id})
+        return jsonify({"status": "error", "message": "Job not found",
+                        "job_id": job_id, "progress": 0, "total": 1})
     return jsonify({
-        "status":  status["screening_status"],
-        "message": status["screening_message"],
-        "job_id":  job_id,
+        "status":   status["screening_status"],
+        "message":  status["screening_message"],
+        "job_id":   job_id,
+        "progress": 1 if status["screening_status"] == "done" else 0,
+        "total":    1,
     })
 
 
-@app.route("/candidates/<int:job_id>")
-def candidates(job_id):
-    job_info        = db.get_job(job_id)
+# ─────────────────────────────────────────────────────────────────────────────
+# Candidates
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/candidates/<int:job_id>")
+def get_candidates(job_id):
     candidates_data = db.get_candidates(job_id)
-    jobs            = db.get_jobs()
     filter_label    = request.args.get("filter", "All")
 
     if filter_label != "All":
-        candidates_data = [c for c in candidates_data if c["ranking_label"] == filter_label]
+        candidates_data = [c for c in candidates_data
+                           if c["ranking_label"] == filter_label]
 
+    job_info = db.get_job(job_id)
     job_req  = json.loads(job_info.get("requirements", "{}")) if job_info else {}
     job_desc = job_info.get("description", "") if job_info else ""
     role     = job_info.get("title", "this role") if job_info else "this role"
@@ -215,27 +246,29 @@ def candidates(job_id):
             feedback = scorer.generate_feedback(score_result, job_desc, job_req, role)
         except Exception:
             feedback = {"strengths": [], "gaps": [], "suggestions": [],
-                       "summary": "Feedback unavailable.", "fit_for_role": False}
+                        "summary": "Feedback unavailable.", "fit_for_role": False}
         candidate["feedback"] = feedback
 
-    return render_template("candidates.html",
-                           job_info=job_info,
-                           candidates=candidates_data,
-                           jobs=jobs,
-                           filter_label=filter_label,
-                           job_id=job_id)
+    return jsonify(candidates_data)
 
 
-@app.route("/analytics/<int:job_id>")
-def analytics(job_id):
-    return render_template("analytics.html",
-                           job_info=db.get_job(job_id),
-                           analytics=db.get_analytics(job_id),
-                           jobs=db.get_jobs(),
-                           job_id=job_id)
+# ─────────────────────────────────────────────────────────────────────────────
+# Analytics
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/analytics/<int:job_id>")
+def get_analytics(job_id):
+    data = db.get_analytics(job_id)
+    if not data:
+        return jsonify({"error": "No analytics data found"}), 404
+    return jsonify(data)
 
 
-@app.route("/send_email/<int:candidate_id>/<email_type>", methods=["POST"])
+# ─────────────────────────────────────────────────────────────────────────────
+# Email
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/send_email/<int:candidate_id>/<email_type>", methods=["POST"])
 def send_email(candidate_id, email_type):
     data         = request.get_json()
     job_id       = data.get("job_id")
@@ -264,7 +297,11 @@ def send_email(candidate_id, email_type):
     return jsonify(result)
 
 
-@app.route("/ai_feedback/<int:candidate_id>", methods=["POST"])
+# ─────────────────────────────────────────────────────────────────────────────
+# AI feedback
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/ai_feedback/<int:candidate_id>", methods=["POST"])
 def ai_feedback(candidate_id):
     data     = request.get_json()
     job_id   = data.get("job_id")
@@ -276,16 +313,20 @@ def ai_feedback(candidate_id):
         return jsonify({"status": "error", "text": "Candidate not found"})
 
     score_result = _candidate_to_score_result(candidate)
-    job_req      = json.loads(job_info.get("requirements", "{}")) if job_info else {}
-    job_desc     = job_info.get("description", "") if job_info else ""
-    role         = job_info.get("title", "this role") if job_info else "this role"
+    job_req  = json.loads(job_info.get("requirements", "{}")) if job_info else {}
+    job_desc = job_info.get("description", "") if job_info else ""
+    role     = job_info.get("title", "this role") if job_info else "this role"
 
     feedback = scorer.generate_feedback(score_result, job_desc, job_req, role)
     ai_text  = generate_ai_feedback(score_result, feedback, job_desc, role)
     return jsonify({"status": "ok", "text": ai_text})
 
 
-@app.route("/export_csv/<int:job_id>")
+# ─────────────────────────────────────────────────────────────────────────────
+# CSV export
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/export_csv/<int:job_id>")
 def export_csv(job_id):
     job_info        = db.get_job(job_id)
     candidates_data = db.get_candidates(job_id)
@@ -295,16 +336,25 @@ def export_csv(job_id):
     writer.writerow(["Name", "Email", "Score", "Label", "Experience (yrs)",
                      "Experience Level", "Education", "Filename"])
     for c in candidates_data:
-        writer.writerow([c.get("candidate_name",""), c.get("candidate_email",""),
-                         c.get("final_score",""), c.get("ranking_label",""),
-                         c.get("experience_years",""), c.get("experience_level",""),
-                         c.get("highest_degree",""), c.get("filename","")])
+        writer.writerow([
+            c.get("candidate_name", ""), c.get("candidate_email", ""),
+            c.get("final_score", ""),    c.get("ranking_label", ""),
+            c.get("experience_years", ""), c.get("experience_level", ""),
+            c.get("highest_degree", ""),   c.get("filename", ""),
+        ])
 
     output.seek(0)
-    fname = f"candidates_{job_info['title'].replace(' ','_')}.csv" if job_info else "candidates.csv"
-    return send_file(io.BytesIO(output.getvalue().encode()),
-                     mimetype="text/csv", as_attachment=True, download_name=fname)
+    fname = (f"candidates_{job_info['title'].replace(' ', '_')}.csv"
+             if job_info else "candidates.csv")
+    return send_file(
+        io.BytesIO(output.getvalue().encode()),
+        mimetype="text/csv", as_attachment=True, download_name=fname,
+    )
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _candidate_to_score_result(candidate: dict) -> dict:
     return {
@@ -319,15 +369,12 @@ def _candidate_to_score_result(candidate: dict) -> dict:
         "certifications":    candidate.get("certifications", []),
         "candidate_name":    candidate.get("candidate_name"),
         "candidate_email":   candidate.get("candidate_email"),
-        "jd_skills":         [],
-        "resume_skills":     [],
-        "_degree_level":     0,
-        "svm_label":         None,
-        "svm_confidence":    None,
-        "skill_gate_status": "pass",
+        "jd_skills":         [], "resume_skills":     [],
+        "_degree_level":     0,  "svm_label":         None,
+        "svm_confidence":    None, "skill_gate_status": "pass",
         "skill_gate_reason": None,
     }
 
 
 if __name__ == "__main__":
-    app.run(debug=False, threaded=True)
+    app.run(debug=False, threaded=True, host="0.0.0.0", port=5000)
