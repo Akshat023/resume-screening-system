@@ -7,7 +7,8 @@ An AI-powered Applicant Tracking System (ATS) that automatically screens resumes
 ## Dashboard
 
 <!-- Paste dashboard screenshot here -->
-![Dashboard Screenshot](assets/dashboard.png)(assets/result.png)
+![Dashboard Screenshot](assets/dashboard.png)
+![Dashboard Screenshot](assets/result.png)
 ---
 
 ## Architecture
