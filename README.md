@@ -158,7 +158,7 @@ FRONTEND_URL=https://your-app.vercel.app
 
 | Component | Platform | URL |
 |---|---|---|
-| Frontend | Vercel | `https://your-app.vercel.app` |
+| Frontend | Vercel | `https://resume-screener-mu-ten.vercel.app` |
 | Backend API | HuggingFace Docker Space | `https://akay4477-resume-screening.hf.space` |
 | Database | Supabase | PostgreSQL (ap-south-1) |
 
