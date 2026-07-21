@@ -243,6 +243,51 @@ class Database:
             return rows
         finally:
             conn.close()
+    
+        # ── Usage tracking ────────────────────────────────────────────────────────
+
+    def get_usage_today(self, user_id: str, tool: str) -> int:
+        """Count screenings by this user today (UTC)."""
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                cur.execute("""
+                    SELECT COUNT(*) FROM usage_log
+                    WHERE user_id = %s
+                      AND tool = %s
+                      AND created_at >= NOW()::date
+                """, (user_id, tool))
+            else:
+                cur.execute("""
+                    SELECT COUNT(*) FROM usage_log
+                    WHERE user_id = ?
+                      AND tool = ?
+                      AND date(created_at) = date('now')
+                """, (user_id, tool))
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+        finally:
+            conn.close()
+
+    def log_usage(self, user_id: str, tool: str, action: str):
+        """Record one usage action."""
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                cur.execute(
+                    "INSERT INTO usage_log (user_id, tool, action) VALUES (%s, %s, %s)",
+                    (user_id, tool, action)
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO usage_log (user_id, tool, action) VALUES (?, ?, ?)",
+                    (user_id, tool, action)
+                )
+            conn.commit()
+        finally:
+            conn.close()
 
     def mark_email_sent(self, candidate_id: int, email_type: str, recipient: str, status: str):
         conn = self._connect()

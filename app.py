@@ -24,6 +24,7 @@ from layer4_extraction import extract_resume_info
 from layer5_model import ResumeScorer, generate_ai_feedback
 from layer6_database import Database
 from layer8_email import EmailSender
+from auth import require_auth, require_auth_with_limit
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "resume-screening-secret-2025")
@@ -63,6 +64,15 @@ def allowed_file(filename: str) -> bool:
 # Health check — used by Docker healthcheck + frontend to verify connection
 # ─────────────────────────────────────────────────────────────────────────────
 
+@app.route("/api/usage")
+@require_auth
+def get_usage(current_user):
+    """Returns today's usage count for the current user."""
+    user_id    = current_user["id"]
+    used_today = db.get_usage_today(user_id, "resume_screening")
+    return jsonify({"used_today": used_today, "limit": int(os.getenv("DAILY_LIMIT", "5"))})
+
+
 @app.route("/api/health")
 def health():
     return jsonify({
@@ -77,7 +87,8 @@ def health():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/jobs")
-def get_jobs():
+@require_auth
+def get_jobs(current_user):
     return jsonify(db.get_jobs())
 
 
@@ -94,7 +105,8 @@ def get_job(job_id):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/screen", methods=["POST"])
-def screen():
+@require_auth_with_limit(db)
+def screen(current_user):
     job_title       = request.form.get("job_title", "").strip()
     job_description = request.form.get("job_description", "").strip()
     min_exp         = int(request.form.get("min_exp", 0))
@@ -150,7 +162,11 @@ def screen():
         daemon=True,
     ).start()
 
-    return jsonify({"job_id": job_id, "task_id": str(job_id), "status": "started"})
+    # Log usage after starting the screening
+    from auth import log_usage
+    log_usage(db, current_user["id"])
+
+    return jsonify({"job_id": job_id, "task_id": str(job_id), "status": "started", "used_today": db.get_usage_today(current_user["id"], "resume_screening"), "limit": 5})
 
 
 def _run_screening(job_id: int, job_description: str,
@@ -227,7 +243,8 @@ def screening_status(job_id):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/candidates/<int:job_id>")
-def get_candidates(job_id):
+@require_auth
+def get_candidates(job_id, current_user):
     candidates_data = db.get_candidates(job_id)
     filter_label    = request.args.get("filter", "All")
 
@@ -257,7 +274,8 @@ def get_candidates(job_id):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/analytics/<int:job_id>")
-def get_analytics(job_id):
+@require_auth
+def get_analytics(job_id, current_user):
     data = db.get_analytics(job_id)
     if not data:
         return jsonify({"error": "No analytics data found"}), 404
@@ -269,7 +287,8 @@ def get_analytics(job_id):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/send_email/<int:candidate_id>/<email_type>", methods=["POST"])
-def send_email(candidate_id, email_type):
+@require_auth
+def send_email(candidate_id, email_type, current_user):
     data         = request.get_json()
     job_id       = data.get("job_id")
     company_name = data.get("company_name", "Our Company")
